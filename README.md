@@ -140,7 +140,3 @@ out\                     运行日志、失败现场图
 ## License
 
 MIT，见 [LICENSE](LICENSE)。
-
----
-
-交流群 1121243020 ｜ 中转站 pursueray.cn ｜ 官网 https://aaaa.yiye.pw/ ｜ 本项目完全免费
