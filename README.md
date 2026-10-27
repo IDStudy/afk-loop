@@ -128,12 +128,14 @@ build.bat
 ## 文件
 
 ```
-nfsm_afk.py              主程序
-afk_config.example.json  配置示例
+nfsm_afk.py              主程序，单文件
+afk_config.example.json  配置示例（窗口、阈值、状态表）
 requirements.txt         依赖
-build.bat                一键打包成 exe
-samples\                 采模板取景示例（不能直接用）
-templates\               你的模板放这（仓库里是空的）
+build.bat                一键打包成 exe，产物 dist\afk-loop\
+启动挂机.bat              源码版启动器，自动申请管理员
+用法.txt                  速查卡：流程 / 热键 / 采集步骤 / 日志说明
+samples\                 取景示例图，不能直接当模板用
+templates\               你自己的模板放这（仓库里是空的）
 out\                     运行日志、失败现场图
 ```
 
