@@ -11,8 +11,14 @@ if errorlevel 1 (
     exit /b 1
 )
 
-echo [1/3] install dependencies...
-python -m pip install -r requirements.txt --quiet
+if not exist "nfsm_afk.py" (
+    echo [!] nfsm_afk.py not found in this folder.
+    pause
+    exit /b 1
+)
+
+echo [1/3] install dependencies + pyinstaller...
+python -m pip install -r requirements.txt pyinstaller --quiet
 if errorlevel 1 (
     echo [!] pip install failed.
     pause

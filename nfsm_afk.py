@@ -58,8 +58,6 @@ TPL_DIR = os.path.join(BASE, "templates")
 OUT_DIR = os.path.join(BASE, "out")
 CFG_PATH = os.path.join(BASE, "afk_config.json")
 
-# 打包后不能再提示 "python xxx.py"，玩家手里只有 exe
-CMD = "NFSM-AFK.exe" if getattr(sys, "frozen", False) else "python nfsm_afk.py"
 HOTKEY = "Ctrl+Alt+Q"
 
 # ------------------------------------------------------------------ 默认配置
@@ -637,7 +635,6 @@ def roi_select(frame):
 
 MATCH_SCALE = 0.5      # 半分辨率匹配：全图 450ms -> 105ms，分数几乎不变
 ROI_MARGIN = 260       # 在采集时记录的位置周围 ±260px 内找，快了再快一截
-MIN_TPL_SIDE = 24      # 模板太小时不降采样，免得糊成一片
 
 
 class Tpl:
@@ -1258,7 +1255,7 @@ def menu(cfg: dict) -> None:
     while True:
         print()
         print("=" * 56)
-        print(" NFSM 热湾淘汰赛挂机")
+        print(" afk-loop   屏幕模板匹配挂机")
         print("=" * 56)
         print("  1  采集界面模板   （第一次必做）")
         print("  2  开始挂机")
