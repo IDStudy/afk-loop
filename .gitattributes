@@ -1,0 +1,11 @@
+# 文本统一 LF 入库
+* text=auto eol=lf
+
+# ★ 必须放在最后：.gitattributes 里后面的规则覆盖前面的
+# .bat 要 CRLF 原样入库，否则 cmd 逐字节解析会错乱
+*.bat -text
+
+# 二进制，别做换行/差异处理
+*.png binary
+*.jpg binary
+*.ico binary
