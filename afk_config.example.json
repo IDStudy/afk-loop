@@ -1,0 +1,80 @@
+{
+  "window": {
+    "title_keyword": "NFS-",
+    "exe_keyword": "SpeedGame-Win64-Shipping.exe"
+  },
+  "match": {
+    "threshold": 0.82
+  },
+  "loop": {
+    "poll_ms": 100,
+    "stuck_warn_sec": 300,
+    "max_rounds": 0,
+    "hold_grace": 1.5,
+    "auto_focus": false,
+    "dump_after": 45,
+    "click_mode": "sendinput"
+  },
+  "states": [
+    {
+      "name": "房间里-开始",
+      "template": "1_start.png",
+      "note": "房间里的【开始 / 准备】按钮",
+      "action": "click",
+      "cooldown": 6.0,
+      "offset": [
+        0,
+        0
+      ]
+    },
+    {
+      "name": "匹配中",
+      "template": "2_matching.png",
+      "note": "匹配等待界面（取消匹配按钮或转圈）",
+      "action": "none",
+      "cooldown": 0.0,
+      "offset": [
+        0,
+        0
+      ]
+    },
+    {
+      "name": "比赛中",
+      "template": "3_racing.png",
+      "note": "比赛中的 HUD（计时器 / 名次 / 小地图任选一块不变的）",
+      "action": "none",
+      "cooldown": 0.0,
+      "offset": [
+        0,
+        0
+      ]
+    },
+    {
+      "name": "排名结算-确认",
+      "template": "4_rank_confirm.png",
+      "note": "比赛打完自动弹的排名结算界面，框【确认】按钮",
+      "action": "click",
+      "cooldown": 8.0,
+      "offset": [
+        0,
+        0
+      ]
+    },
+    {
+      "name": "奖励结算-任意点",
+      "template": "5_reward_click.png",
+      "note": "奖励结算界面，框界面上固定不动的一块（标题 / 图标，别框奖励物品）",
+      "action": "click_anywhere",
+      "cooldown": 12.0,
+      "point": [
+        0.5,
+        0.55
+      ],
+      "count_round": true,
+      "offset": [
+        0,
+        0
+      ]
+    }
+  ]
+}

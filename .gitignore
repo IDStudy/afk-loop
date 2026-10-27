@@ -1,0 +1,32 @@
+# 本机产生的运行时文件 —— 不进仓库
+
+# 自己的模板（分辨率/UI 缩放绑定，别人拿来也用不了）
+templates/*.png
+templates/meta.json
+!templates/.gitkeep
+
+# 运行产物
+out/*
+!out/.gitkeep
+afk_config.json
+
+# 打包产物
+dist/
+build/
+*.spec
+发布/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env/
+
+# 本地记忆/笔记/工作日志
+.workbuddy/
+进度.md
+
+# 本地开发用的工具（依赖本机路径，不适合分发）
+_selftest.py
+_make_release.py
