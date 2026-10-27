@@ -122,7 +122,7 @@ python nfsm_afk.py
 
 模板框到了动态内容，或者游戏换了分辨率 / UI 版本。重新采。
 
-## ⚙️ 配置
+## ⚙ 配置
 
 `afk_config.json`（首次运行自动生成，参考 `afk_config.example.json`）：
 
@@ -135,6 +135,7 @@ python nfsm_afk.py
 | `loop.click_mode` | `sendinput` / `postmessage` / `both` |
 | `loop.max_rounds` | 跑几轮自动停，0 = 不限 |
 | `states[]` | 状态表：一张 png + 一个动作 |
+| `states[].count_round` | 打勾的这条动作算完成一轮（挂在奖励结算那条上） |
 
 状态表按顺序匹配，第一个过阈值的胜出。
 
