@@ -63,13 +63,9 @@
     {
       "name": "奖励结算-任意点",
       "template": "5_reward_click.png",
-      "note": "奖励结算界面，框界面上固定不动的一块（标题 / 图标，别框奖励物品）",
-      "action": "click_anywhere",
+      "note": "奖励结算界面，框「点击屏幕任意位置返回」那行字 —— 框哪里点哪里",
+      "action": "click",
       "cooldown": 12.0,
-      "point": [
-        0.5,
-        0.55
-      ],
       "count_round": true,
       "offset": [
         0,
