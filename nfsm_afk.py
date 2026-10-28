@@ -9,6 +9,7 @@ import threading
 import time
 from ctypes import wintypes
 from datetime import datetime
+from unicodedata import east_asian_width
 
 # ★ 必须先声明 DPI 感知，否则高缩放屏下 Win32 坐标和截图坐标对不上
 try:
@@ -66,7 +67,7 @@ DEFAULT_STATES = [
     {
         "name": "房间里-开始",
         "template": "1_start.png",
-        "note": "房间里的【开始 / 准备】按钮",
+        "note": "开局那一步的按钮：房间开局是【开始匹配】，大世界开局是玩法入口",
         "action": "click",
         "cooldown": 6.0,
         "offset": [0, 0],
@@ -74,7 +75,7 @@ DEFAULT_STATES = [
     {
         "name": "匹配中",
         "template": "2_matching.png",
-        "note": "匹配等待界面（取消匹配按钮或转圈）",
+        "note": "匹配等待界面的固定元素（取消匹配按钮 / 转圈图样，别框计时）",
         "action": "none",
         "cooldown": 0.0,
         "offset": [0, 0],
@@ -82,7 +83,7 @@ DEFAULT_STATES = [
     {
         "name": "比赛中",
         "template": "3_racing.png",
-        "note": "比赛中的 HUD（计时器 / 名次 / 小地图任选一块不变的）",
+        "note": "比赛中的固定 HUD（比如【晋级名额】四个字，别框名额数字和计时）",
         "action": "none",
         "cooldown": 0.0,
         "offset": [0, 0],
@@ -90,7 +91,7 @@ DEFAULT_STATES = [
     {
         "name": "排名结算-确认",
         "template": "4_rank_confirm.png",
-        "note": "比赛打完自动弹的排名结算界面，框【确认】按钮",
+        "note": "排名结算界面的【确认】两个字（别带 (26秒) 倒计时）",
         "action": "click",
         "cooldown": 8.0,
         "offset": [0, 0],
@@ -98,8 +99,9 @@ DEFAULT_STATES = [
     {
         "name": "奖励结算-任意点",
         "template": "5_reward_click.png",
-        "note": "奖励结算界面，框「点击屏幕任意位置返回」那行字 —— 框哪里点哪里",
-        "action": "click",
+        "note": "奖励结算界面底部「点击屏幕任意位置返回」那行小字（点哪由 points 依次试）",
+        "action": "click_anywhere",
+        "points": [[0.5, 0.94], [0.5, 0.55], [0.5, 0.06]],
         "cooldown": 12.0,
         "count_round": True,
         "offset": [0, 0],
@@ -107,10 +109,11 @@ DEFAULT_STATES = [
 ]
 
 DEFAULT_CFG = {
+    "cfg_version": 2,
     "window": {"title_keyword": "NFS-", "exe_keyword": "SpeedGame-Win64-Shipping.exe"},
     "match": {"threshold": 0.82},
     "loop": {"poll_ms": 100, "stuck_warn_sec": 300, "max_rounds": 0,
-             "hold_grace": 1.5, "auto_focus": False, "dump_after": 45,
+             "hold_grace": 1.5, "auto_focus": False, "dump_after": 120,
              "click_mode": "sendinput"},
     "states": DEFAULT_STATES,
 }
@@ -119,6 +122,17 @@ DEFAULT_CFG = {
 
 def _now() -> str:
     return datetime.now().strftime("%H:%M:%S")
+
+
+def dwidth(s: str) -> int:
+    """终端显示宽度：中文 / 全角算 2 列，其余算 1 列。"""
+    return sum(2 if east_asian_width(c) in ("W", "F") else 1 for c in s)
+
+
+def dpad(s: str, width: int, right: bool = False) -> str:
+    """按显示宽度补空格，让中文和英文混排也能对齐。"""
+    gap = " " * max(width - dwidth(s), 0)
+    return gap + s if right else s + gap
 
 
 class Log:
@@ -181,30 +195,47 @@ def imwrite_u(path: str, img) -> bool:
     return True
 
 
-def _migrate_cfg(cfg: dict) -> bool:
-    """老配置升级。
+_OLD_NOTES = {
+    "房间里的【开始 / 准备】按钮",
+    "匹配等待界面（取消匹配按钮或转圈）",
+    "比赛中的 HUD（计时器 / 名次 / 小地图任选一块不变的）",
+    "比赛打完自动弹的排名结算界面，框【确认】按钮",
+    "奖励结算界面，框界面上固定不动的一块（标题 / 图标，别框奖励物品）",
+    "奖励结算界面，框「点击屏幕任意位置返回」那行字 —— 框哪里点哪里",
+}
 
-    ★ 老默认把「奖励结算-任意点」写成 click_anywhere + point=[0.5,0.55]，
-    点的是**客户区固定比例位置**，跟模板框在哪毫无关系。换台机器 / 换分辨率后
-    这个点正好落在奖励卡片上，点击被卡片吃掉 → 界面永远推不动，
-    表现为"框的是底部提示，却一直点屏幕中央的奖励框"。改成点模板中心。
+
+def _migrate_cfg(cfg: dict, ver: int) -> bool:
+    """老配置升级。只在 cfg_version < 2 时做一次，做完打标。
+
+    ★ ver 必须来自【磁盘上的原文件】，不能用合并后的 cfg ——
+    DEFAULT_CFG 里已经有 cfg_version=2，合并后永远看不出这份配置是几版。
+
+    v2 修的两个坑（都来自 v1）：
+    1. v1 把奖励结算改成 `click`（点模板中心）。实测那行提示小字点不动 ——
+       点它界面不变，日志写「⚠界面没变」。改成 `click_anywhere` + `points`：
+       依次试点，哪个能推进就用哪个。
+    2. 采集提示文案更新（大世界开局 / 别框倒计时），老配置里的 note 一起刷新。
     """
-    changed = False
+    if ver >= 2:
+        return False
+
+    by_tpl = {s.get("template"): s for s in DEFAULT_STATES}
     for st in cfg.get("states", []):
-        if st.get("action") != "click_anywhere":
-            continue
-        pt = st.get("point")
-        try:
-            is_old_default = (not pt) or [round(float(v), 3) for v in pt] == [0.5, 0.55]
-        except Exception:
-            is_old_default = False
-        if is_old_default:
-            st["action"] = "click"
+        tpl = st.get("template")
+        d = by_tpl.get(tpl)
+        # 1) 刷新旧文案（用户自己写的 note 不动）
+        if d and st.get("note") in _OLD_NOTES:
+            st["note"] = d["note"]
+        # 2) 奖励结算：改成多点轮换，去掉单个 point
+        if tpl == "5_reward_click.png":
+            st["action"] = "click_anywhere"
             st.pop("point", None)
-            if st.get("note") == "奖励结算界面，框界面上固定不动的一块（标题 / 图标，别框奖励物品）":
-                st["note"] = "奖励结算界面，框「点击屏幕任意位置返回」那行字 —— 框哪里点哪里"
-            changed = True
-    return changed
+            if not st.get("points"):
+                st["points"] = [list(p) for p in d["points"]]
+
+    cfg["cfg_version"] = 2
+    return True
 
 
 def load_cfg() -> dict:
@@ -224,7 +255,11 @@ def load_cfg() -> dict:
         else:
             cfg[k] = v
 
-    if _migrate_cfg(cfg):
+    try:
+        disk_ver = int(raw_orig.get("cfg_version", 1))
+    except Exception:
+        disk_ver = 1
+    if _migrate_cfg(cfg, disk_ver):
         try:
             bak = CFG_PATH + ".bak"
             if not os.path.isfile(bak):
@@ -232,9 +267,10 @@ def load_cfg() -> dict:
                     json.dump(raw_orig, f, ensure_ascii=False, indent=2)
             with open(CFG_PATH, "w", encoding="utf-8") as f:
                 json.dump(cfg, f, ensure_ascii=False, indent=2)
-            print("⚠ 已升级配置：奖励结算那一步从「点屏幕固定位置」改成「点模板中心」")
+            print("⚠ 已升级配置（v2）：")
+            print("  · 奖励结算那一步改成依次试点（底部/中间/顶部），哪个能推进就用哪个")
+            print("  · 采集提示文案更新（大世界开局 / 别框倒计时）")
             print(f"  原文件备份：{bak}")
-            print("  （之前一直点屏幕中央，换分辨率后会点到奖励卡片上，界面推不动）")
         except Exception:
             pass
     return cfg
@@ -613,17 +649,29 @@ def failsafe_triggered() -> bool:
 
 
 _STOP = threading.Event()
+_PAUSE = threading.Event()      # Ctrl+Alt+P 手动暂停（暂停期间不动鼠标键盘）
 
 
 def start_watchdog() -> threading.Thread:
     """独立线程盯热键，30ms 一轮 —— 主循环在匹配也不会漏按。"""
 
     def loop():
+        p_prev = False
         while not _STOP.is_set():
             try:
                 if hot_pressed() or failsafe_triggered():
                     _STOP.set()
                     return
+                # Ctrl+Alt+P 切换暂停（要边沿触发，否则按住会疯狂切换）
+                p_now = _combo(0x11, 0x12, 0x50)
+                if p_now and not p_prev:
+                    if _PAUSE.is_set():
+                        _PAUSE.clear()
+                        print("\n▶ 继续")
+                    else:
+                        _PAUSE.set()
+                        print("\n⏸ 已暂停（Ctrl+Alt+P 继续）")
+                p_prev = p_now
             except Exception:
                 pass
             time.sleep(0.03)
@@ -790,7 +838,7 @@ def match_tpl(frame_small, t: Tpl, thr: float = 0.0):
 def cmd_win(cfg: dict) -> None:
     wins = enum_windows()
     print()
-    print("可见窗口（挑一个填进 afk_config.json 的 window 里）")
+    print("可见窗口（标题或进程名填进 afk_config.json → window）")
     print("-" * 78)
     for hwnd, title, exe, cw, ch in wins:
         print(f"hwnd={hwnd:<10} {cw}x{ch:<6} {exe:<24} {title[:40]}")
@@ -816,10 +864,13 @@ def cmd_capture(cfg: dict, hwnd_hint: int = 0) -> None:
 
     states = cfg.get("states", [])
     print("\n采集说明：")
-    print("  1. 游戏切到对应界面（不用切回本窗口）")
-    print("  2. 按 Ctrl+Alt+S 抓图 → 弹出截图上拖框选【按钮本体】→ 回车确认")
-    print("  3. Ctrl+Alt+X 跳过当前，Ctrl+Alt+E 结束采集")
-    print("  按钮要贴边、带文字/图标；别选会动的区域（计时、速度）")
+    print("  1  游戏切到对应界面（不用切回本窗口）")
+    print("  2  按 Ctrl+Alt+S 抓图 → 拖框选按钮 → 回车确认")
+    print("  3  Ctrl+Alt+X 跳过    Ctrl+Alt+E 结束")
+    print()
+    print("  ·  框哪点哪：模板中心就是点击位置")
+    print("  ·  只框永远不变的东西，数字 / 倒计时 / 进度 / 名额都别框")
+    print("  ·  大世界开局只换第 1 张，2-5 通用")
     print()
 
     meta_path = os.path.join(TPL_DIR, "meta.json")
@@ -837,8 +888,8 @@ def cmd_capture(cfg: dict, hwnd_hint: int = 0) -> None:
             continue
         path = os.path.join(TPL_DIR, name)
         flag = "已有" if os.path.isfile(path) else "缺失"
-        print(f"[{idx}/{len(states)}] {name}  ({flag})")
-        print(f"    要截的是：{st.get('note','')}")
+        print(f"[{idx}/{len(states)}] {dpad(name, 20)} {flag}")
+        print(f"      要截：{st.get('note', '')}")
         print("    等待热键…", end="", flush=True)
         act = wait_capture_hot()
         print()
@@ -882,9 +933,9 @@ def cmd_probe(cfg: dict, hwnd_hint: int = 0) -> None:
         print(f"⚠ 缺模板：{', '.join(missing)}")
     th = float(cfg["match"]["threshold"])
     print()
-    print(f"实时匹配   客户区 {cw}x{ch}  阈值 {th}  x{MATCH_SCALE}")
-    print(f"退出       F9 / 鼠标左上角 / Ctrl+C")
-    print("分数 >=0.90 稳，0.82~0.90 勉强，<0.82 模板该重采")
+    print(f"{dpad('实时分数', 10)}客户区 {cw}x{ch}  阈值 {th}  x{MATCH_SCALE}")
+    print(f"{dpad('退出', 10)}F9 / 鼠标左上角 / Ctrl+C")
+    print(f"{dpad('参考', 10)}0.90 以上稳 ｜ 0.82-0.90 勉强 ｜ 0.82 以下重采")
     print()
     _STOP.clear()
     start_watchdog()
@@ -948,7 +999,7 @@ def cmd_run(cfg: dict, hwnd_hint: int = 0) -> None:
     stuck_warn = float(cfg["loop"]["stuck_warn_sec"])
     max_rounds = int(cfg["loop"]["max_rounds"])
     auto_focus = bool(cfg["loop"].get("auto_focus", False))
-    dump_after = float(cfg["loop"].get("dump_after", 45.0))
+    dump_after = float(cfg["loop"].get("dump_after", 120.0))
 
     log_path = os.path.join(OUT_DIR, f"afk_{datetime.now():%Y%m%d_%H%M%S}.log")
     log = Log(log_path)
@@ -956,17 +1007,24 @@ def cmd_run(cfg: dict, hwnd_hint: int = 0) -> None:
     trim_dir(os.path.join(OUT_DIR, "fail"), 20)
 
     print()
-    print(f"窗口  {title}   {cw}x{ch}   模板 {len(fresh)}  阈值 {th}")
+    print(f"窗口  {title[:44]}")
+    print(f"      {cw}x{ch}  模板 {len(fresh)}  阈值 {th}  轮询 {poll*1000:.0f}ms")
     print(f"日志  {log_path}")
-    print(f"停止  {HOTKEY} / F9 / 鼠标甩左上角 / 本窗口 Ctrl+C     切走游戏 = 自动暂停")
+    print(f"停止  {HOTKEY} / F9 / 鼠标左上角      暂停 Ctrl+Alt+P")
     print()
 
     _STOP.clear()
+    _PAUSE.clear()
     start_watchdog()
 
     held: set[str] = set()
     last_fire: dict[str, float] = {}
     fails: dict[str, int] = {}          # 每个界面连续点不动的次数
+    pt_idx: dict[str, int] = {}         # 多点轮换：每个界面当前试到第几个点
+    pending = None                      # 上一次点击 {"name","at","count_round","points"}，等界面变化来结算
+    last_known = None                   # 最后一次认出的界面名（不被"未识别"清掉，用来清失败计数）
+    PEND_TIMEOUT = 3.0                  # 点完 3 秒还停在同一界面 = 那一下没推进
+    PEND_EXPIRE = 120.0                 # 点完 2 分钟还没任何界面认出来 = 放弃等待
     last_state = None
     last_hit = time.time()
     warned_at = 0.0
@@ -1007,50 +1065,24 @@ def cmd_run(cfg: dict, hwnd_hint: int = 0) -> None:
             used = "postmessage"
         return used
 
-    def state_gone(t: Tpl, wait: float = 0.45) -> bool:
-        """点完等一下重新匹配：这个界面的模板消失了才算真的推进了。
-
-        ★ 不能用"画面变了"当判据 —— 点到奖励卡片会把卡片点亮，diff 很大，
-        但界面根本没走。只有模板消失才说明换界面了。
-        """
-        time.sleep(wait)
-        f = grab(hwnd)
-        if f is None or f.size == 0:
-            return True
-        gg = cv2.cvtColor(f, cv2.COLOR_BGR2GRAY)
-        ss = cv2.resize(gg, None, fx=MATCH_SCALE, fy=MATCH_SCALE,
-                        interpolation=cv2.INTER_AREA)
-        sc, _ = match_tpl(ss, t, th)
-        if sc < th:
-            return True
-        time.sleep(1.2)                     # 还在？再等 1.2 秒复核，避免过场动画误报
-        f = grab(hwnd)
-        if f is None or f.size == 0:
-            return True
-        gg = cv2.cvtColor(f, cv2.COLOR_BGR2GRAY)
-        ss = cv2.resize(gg, None, fx=MATCH_SCALE, fy=MATCH_SCALE,
-                        interpolation=cv2.INTER_AREA)
-        sc, _ = match_tpl(ss, t, th)
-        return sc < th
-
     def _count_fail(name: str) -> None:
         n = fails.get(name, 0) + 1
         fails[name] = n
         if n == 3:
-            log(f"⚠ 「{name}」连点 3 次没走 —— 这个位置点不动："
+            log(f"⚠ 「{name}」连点 3 次都没推进 —— 这个位置点不动："
                 f"换一块框模板，或给这条加 offset")
 
-    def fire(t: Tpl, cx: int, cy: int, sx: int, sy: int, button: str = "left"):
-        """点一下并确认界面真的换了。返回 (是否生效, 日志后缀)。"""
+    def fire(cx: int, cy: int, sx: int, sy: int, button: str = "left") -> str:
+        """只负责点，不在这里判断有没有效。返回日志后缀。
+
+        ★ 不在点击现场判定 —— 房间点「开始」之后按钮还留在画面上（匹配遮罩 / 淡出），
+        模板 1.6 秒内照样匹配得上，于是明明成功了却打「⚠界面没变」。
+        改成主循环里延迟观察：3 秒后仍停在同一个界面才算真的没推进。
+        """
         used = do_click(cx, cy, sx, sy, button)
         if used == "none":
-            _count_fail(t.name)
-            return False, "   ⚠没送进去（光标被锁 / 权限不够）"
-        if not state_gone(t):
-            _count_fail(t.name)
-            return False, "   ⚠界面没变（点到了不能点的地方？）"
-        fails.pop(t.name, None)
-        return True, ""
+            return "   ⚠没送进去（光标被锁 / 权限不够）"
+        return ""
 
     try:
         while True:
@@ -1060,6 +1092,11 @@ def cmd_run(cfg: dict, hwnd_hint: int = 0) -> None:
             if max_rounds > 0 and rounds >= max_rounds:
                 log(f"已达到轮数上限 {max_rounds}，停止。")
                 break
+
+            if _PAUSE.is_set():
+                status("⏸ 已暂停，输入全停（Ctrl+Alt+P 继续）")
+                _STOP.wait(0.3)
+                continue
 
             if not is_foreground(hwnd):
                 if auto_focus and activate(hwnd):
@@ -1102,46 +1139,84 @@ def cmd_run(cfg: dict, hwnd_hint: int = 0) -> None:
                 did = ""          # 这一帧干了什么，空串 = 只是认出界面
                 round_msg = ""
 
+                # 界面推进了就把上一个界面的"没推进"计数清掉
+                # （否则每局都记一次失败，攒到 3 次会误报"连点 3 次没推动"）
+                if last_known and last_known != name:
+                    fails.pop(last_known, None)
+                last_known = name
+
+                # ---- 结算上一次点击（延迟判定，不在点击现场猜）----
+                if pending:
+                    if pending["name"] != name:
+                        # 界面换了 = 那次点击确实推进了
+                        fails.pop(pending["name"], None)
+                        pt_idx.pop(pending["name"], None)
+                        if pending.get("count_round"):
+                            rounds += 1
+                            round_msg = (f"   ✔ 第 {rounds} 轮  "
+                                         f"{(now - round_t0) / 60:.1f} 分钟")
+                            round_t0 = now
+                        pending = None
+                    elif now - pending["at"] >= PEND_TIMEOUT:
+                        # 3 秒过去还停在同一界面 = 确实没动
+                        _count_fail(name)
+                        if pending.get("points"):
+                            pt_idx[name] = (pt_idx.get(name, 0) + 1) % pending["points"]
+                        pending = None
+
+                # 轮数刚到上限就停在这一帧：别再点下一步，免得刚停就又开了一局
+                if max_rounds > 0 and rounds >= max_rounds and pending is None:
+                    if round_msg:
+                        log(round_msg)
+                        round_msg = ""
+                    log(f"已达到轮数上限 {max_rounds}，停止。")
+                    break
+
                 act = st.get("action", "none")
+                # ★ 每次点击前再确认一次游戏在前台：用户可能刚 Alt+Tab 去看控制台，
+                # 这时候继续按绝对坐标点，会点到控制台/桌面上，或者把游戏又拉回前台。
+                can_click = is_foreground(hwnd)
                 if act in ("click", "click_template"):
                     cd = float(st.get("cooldown", 3.0))
-                    if now - last_fire.get(name, 0.0) >= cd:
+                    if can_click and now - last_fire.get(name, 0.0) >= cd:
                         sc = t.scale
                         th_, tw_ = t.small.shape[:2]
                         cx = int(round((loc[0] + tw_ / 2) / sc)) + int(st.get("offset", [0, 0])[0])
                         cy = int(round((loc[1] + th_ / 2) / sc)) + int(st.get("offset", [0, 0])[1])
                         sx, sy = client_point(cx, cy)
-                        ok, note = fire(t, cx, cy, sx, sy, st.get("button", "left"))
+                        note = fire(cx, cy, sx, sy, st.get("button", "left"))
                         last_fire[name] = now
                         did = f"点击({sx},{sy})" + note
-                        if ok and st.get("count_round"):
-                            rounds += 1
-                            round_msg = f"   ✔ 第 {rounds} 轮  {(now - round_t0) / 60:.1f} 分钟"
-                            round_t0 = now
-                        elif not ok and st.get("count_round"):
-                            round_msg = "   ⚠ 这一轮没走成，不计入轮数"
+                        pending = {"name": name, "at": now,
+                                   "count_round": bool(st.get("count_round")),
+                                   "points": 0}
                 elif act == "click_anywhere":
                     cd = float(st.get("cooldown", 10.0))
-                    if now - last_fire.get(name, 0.0) >= cd:
-                        pt = st.get("point")
-                        if pt:                      # 配了固定比例点就点那里
-                            cx = int(cw * float(pt[0]))
-                            cy = int(ch * float(pt[1]))
-                        else:                       # 没配就点模板中心（框哪点哪）
+                    if can_click and now - last_fire.get(name, 0.0) >= cd:
+                        pts = st.get("points")
+                        one = st.get("point")
+                        tag = ""
+                        if pts:
+                            # 依次试点：哪个能推进就记住哪个（这个界面的"任意位置"未必真任意）
+                            idx = pt_idx.get(name, 0) % len(pts)
+                            cx = int(cw * float(pts[idx][0]))
+                            cy = int(ch * float(pts[idx][1]))
+                            tag = f"[第{idx + 1}/{len(pts)}点]"
+                        elif one:
+                            cx = int(cw * float(one[0]))
+                            cy = int(ch * float(one[1]))
+                        else:
                             sc = t.scale
                             th_, tw_ = t.small.shape[:2]
                             cx = int(round((loc[0] + tw_ / 2) / sc))
                             cy = int(round((loc[1] + th_ / 2) / sc))
                         sx, sy = client_point(cx, cy)
-                        ok, note = fire(t, cx, cy, sx, sy, st.get("button", "left"))
+                        note = fire(cx, cy, sx, sy, st.get("button", "left"))
                         last_fire[name] = now
-                        did = f"点屏幕({sx},{sy})" + note
-                        if ok and st.get("count_round"):
-                            rounds += 1
-                            round_msg = f"   ✔ 第 {rounds} 轮  {(now - round_t0) / 60:.1f} 分钟"
-                            round_t0 = now
-                        elif not ok and st.get("count_round"):
-                            round_msg = "   ⚠ 这一轮没走成，不计入轮数"
+                        did = f"点屏幕{tag}({sx},{sy})" + note
+                        pending = {"name": name, "at": now,
+                                   "count_round": bool(st.get("count_round")),
+                                   "points": len(pts) if pts else 0}
                 elif act == "key_hold":
                     k = str(st.get("key", "w"))
                     want_hold.add(k)
@@ -1165,7 +1240,11 @@ def cmd_run(cfg: dict, hwnd_hint: int = 0) -> None:
                     log(round_msg)
             else:
                 last_state = "?"      # 加载 / 过场本来就认不出，静默
-                if now - last_hit > dump_after and now - last_dump > 60:
+                if pending and now - pending["at"] > PEND_EXPIRE:
+                    # 点了之后两分钟没任何界面认出来，放弃这次等待，交给下面报警
+                    _count_fail(pending["name"])
+                    pending = None
+                if not pending and now - last_hit > dump_after and now - last_dump > 60:
                     last_dump = now
                     d = os.path.join(OUT_DIR, "fail")
                     os.makedirs(d, exist_ok=True)
@@ -1328,11 +1407,11 @@ def cmd_clicktest(cfg: dict, hwnd_hint: int = 0) -> None:
 def confirm_start() -> bool:
     """开跑前的警告。回车继续，Ctrl+C 放弃。"""
     print()
-    print("=" * 56)
+    print("=" * 52)
     print(" 【警告】")
     print(" 自己用就行了，请勿大肆宣传。")
-    print(" 不然这就是官方随便加个检测的事，到时候大家都只能老老实实手刷。")
-    print("=" * 56)
+    print(" 不然官方随便加个检测，大家都只能老老实实手刷。")
+    print("=" * 52)
     print(" 确认无误后回车。")
     print()
     try:
@@ -1344,19 +1423,24 @@ def confirm_start() -> bool:
 
 
 def menu(cfg: dict) -> None:
+    items = [
+        ("1", "采集界面模板", "第一次必做"),
+        ("2", "开始挂机", ""),
+        ("3", "实时分数", "查模板有没有失效"),
+        ("4", "可见窗口", "找标题 / 进程名"),
+        ("5", "点击测试", "点了没反应时用"),
+        ("0", "退出", ""),
+    ]
     while True:
         print()
-        print("=" * 56)
+        print("=" * 52)
         print(" afk-loop   屏幕模板匹配挂机")
-        print("=" * 56)
-        print("  1  采集界面模板   （第一次必做）")
-        print("  2  开始挂机")
-        print("  3  实时匹配分数   （调阈值 / 查模板有没有失效）")
-        print("  4  列出可见窗口")
-        print("  5  点击测试       （点了没反应时用这个）")
-        print("  0  退出")
-        print("=" * 56)
-        print(f"  终止热键 {HOTKEY} / F9 / 鼠标甩左上角")
+        print("=" * 52)
+        for no, name, hint in items:
+            line = f"  {no}  {dpad(name, 14)}"
+            print(line + hint if hint else line.rstrip())
+        print("-" * 52)
+        print(f"  停 {HOTKEY} / F9 / 鼠标左上角     暂停 Ctrl+Alt+P")
         print()
         c = input("选择：").strip().lower()
         try:
