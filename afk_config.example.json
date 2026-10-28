@@ -1,4 +1,5 @@
 {
+  "cfg_version": 2,
   "window": {
     "title_keyword": "NFS-",
     "exe_keyword": "SpeedGame-Win64-Shipping.exe"
@@ -12,14 +13,14 @@
     "max_rounds": 0,
     "hold_grace": 1.5,
     "auto_focus": false,
-    "dump_after": 45,
+    "dump_after": 120,
     "click_mode": "sendinput"
   },
   "states": [
     {
       "name": "房间里-开始",
       "template": "1_start.png",
-      "note": "房间里的【开始 / 准备】按钮",
+      "note": "开局那一步的按钮：房间开局是【开始匹配】，大世界开局是玩法入口",
       "action": "click",
       "cooldown": 6.0,
       "offset": [
@@ -30,7 +31,7 @@
     {
       "name": "匹配中",
       "template": "2_matching.png",
-      "note": "匹配等待界面（取消匹配按钮或转圈）",
+      "note": "匹配等待界面的固定元素（取消匹配按钮 / 转圈图样，别框计时）",
       "action": "none",
       "cooldown": 0.0,
       "offset": [
@@ -41,7 +42,7 @@
     {
       "name": "比赛中",
       "template": "3_racing.png",
-      "note": "比赛中的 HUD（计时器 / 名次 / 小地图任选一块不变的）",
+      "note": "比赛中的固定 HUD（比如【晋级名额】四个字，别框名额数字和计时）",
       "action": "none",
       "cooldown": 0.0,
       "offset": [
@@ -52,7 +53,7 @@
     {
       "name": "排名结算-确认",
       "template": "4_rank_confirm.png",
-      "note": "比赛打完自动弹的排名结算界面，框【确认】按钮",
+      "note": "排名结算界面的【确认】两个字（别带 (26秒) 倒计时）",
       "action": "click",
       "cooldown": 8.0,
       "offset": [
@@ -63,8 +64,22 @@
     {
       "name": "奖励结算-任意点",
       "template": "5_reward_click.png",
-      "note": "奖励结算界面，框「点击屏幕任意位置返回」那行字 —— 框哪里点哪里",
-      "action": "click",
+      "note": "奖励结算界面底部「点击屏幕任意位置返回」那行小字（点哪由 points 依次试）",
+      "action": "click_anywhere",
+      "points": [
+        [
+          0.5,
+          0.94
+        ],
+        [
+          0.5,
+          0.55
+        ],
+        [
+          0.5,
+          0.06
+        ]
+      ],
       "cooldown": 12.0,
       "count_round": true,
       "offset": [
