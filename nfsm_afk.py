@@ -98,10 +98,9 @@ DEFAULT_STATES = [
     {
         "name": "奖励结算-任意点",
         "template": "5_reward_click.png",
-        "note": "奖励结算界面，框界面上固定不动的一块（标题 / 图标，别框奖励物品）",
-        "action": "click_anywhere",
+        "note": "奖励结算界面，框「点击屏幕任意位置返回」那行字 —— 框哪里点哪里",
+        "action": "click",
         "cooldown": 12.0,
-        "point": [0.5, 0.55],
         "count_round": True,
         "offset": [0, 0],
     },
@@ -145,12 +144,14 @@ class Log:
             self.fh = None
 
 
-def trim_dir(path: str, keep: int, suffix: str = ".png") -> None:
-    """只留最新的 keep 个文件。挂机跑久了 fail 截图能把盘塞满。"""
+def trim_dir(path: str, keep: int, suffix: str = ".png", keep_names=()) -> None:
+    """只留最新的 keep 个文件。挂机跑久了 fail 截图能把盘塞满。
+    keep_names 里的固定文件（clicktest.log）不参与淘汰。"""
     try:
         if not os.path.isdir(path):
             return
         files = [os.path.join(path, f) for f in os.listdir(path) if f.endswith(suffix)]
+        files = [p for p in files if os.path.basename(p) not in keep_names]
         files.sort(key=os.path.getmtime)
         for p in files[:-keep] if len(files) > keep else []:
             try:
@@ -180,6 +181,32 @@ def imwrite_u(path: str, img) -> bool:
     return True
 
 
+def _migrate_cfg(cfg: dict) -> bool:
+    """老配置升级。
+
+    ★ 老默认把「奖励结算-任意点」写成 click_anywhere + point=[0.5,0.55]，
+    点的是**客户区固定比例位置**，跟模板框在哪毫无关系。换台机器 / 换分辨率后
+    这个点正好落在奖励卡片上，点击被卡片吃掉 → 界面永远推不动，
+    表现为"框的是底部提示，却一直点屏幕中央的奖励框"。改成点模板中心。
+    """
+    changed = False
+    for st in cfg.get("states", []):
+        if st.get("action") != "click_anywhere":
+            continue
+        pt = st.get("point")
+        try:
+            is_old_default = (not pt) or [round(float(v), 3) for v in pt] == [0.5, 0.55]
+        except Exception:
+            is_old_default = False
+        if is_old_default:
+            st["action"] = "click"
+            st.pop("point", None)
+            if st.get("note") == "奖励结算界面，框界面上固定不动的一块（标题 / 图标，别框奖励物品）":
+                st["note"] = "奖励结算界面，框「点击屏幕任意位置返回」那行字 —— 框哪里点哪里"
+            changed = True
+    return changed
+
+
 def load_cfg() -> dict:
     if not os.path.isfile(CFG_PATH):
         with open(CFG_PATH, "w", encoding="utf-8") as f:
@@ -187,12 +214,29 @@ def load_cfg() -> dict:
         print(f"已生成默认配置：{CFG_PATH}")
     with open(CFG_PATH, encoding="utf-8") as f:
         raw = json.load(f)
+    # ★ 必须深拷贝再当备份：下面 cfg[k] = v 会共享同一个 list 对象，
+    # 迁移改了 cfg 就等于把 raw 也改了，备份出来的"原文件"是升级后的内容。
+    raw_orig = json.loads(json.dumps(raw))
     cfg = json.loads(json.dumps(DEFAULT_CFG))
     for k, v in raw.items():
         if isinstance(v, dict) and isinstance(cfg.get(k), dict):
             cfg[k].update(v)
         else:
             cfg[k] = v
+
+    if _migrate_cfg(cfg):
+        try:
+            bak = CFG_PATH + ".bak"
+            if not os.path.isfile(bak):
+                with open(bak, "w", encoding="utf-8") as f:
+                    json.dump(raw_orig, f, ensure_ascii=False, indent=2)
+            with open(CFG_PATH, "w", encoding="utf-8") as f:
+                json.dump(cfg, f, ensure_ascii=False, indent=2)
+            print("⚠ 已升级配置：奖励结算那一步从「点屏幕固定位置」改成「点模板中心」")
+            print(f"  原文件备份：{bak}")
+            print("  （之前一直点屏幕中央，换分辨率后会点到奖励卡片上，界面推不动）")
+        except Exception:
+            pass
     return cfg
 
 
@@ -434,15 +478,22 @@ def move_to(x: int, y: int) -> bool:
 
 
 def click_at(x: int, y: int, button: str = "left", hold_ms: int = 90) -> bool:
-    """标准序列：MOVE(带绝对坐标) -> DOWN(裸事件) -> UP(裸事件)。"""
+    """标准序列：MOVE(带绝对坐标) -> DOWN(裸事件) -> UP(裸事件)。
+
+    ★ 光标没到位就绝不下 DOWN/UP：DOWN/UP 是裸事件，落点 = 当前光标位置。
+    光标被游戏锁住 / 移动被拦时照发，就会**点在屏幕上一个随机位置**
+    （点到奖励卡、点到退出按钮都有可能），比不点更糟。
+    """
     down = MOUSE_LEFTDOWN if button == "left" else MOUSE_RIGHTDOWN
     up = MOUSE_LEFTUP if button == "left" else MOUSE_RIGHTUP
-    moved = move_to(x, y)
+    moved = move_to(x, y) or move_to(x, y)      # 刚切窗口时第一发常被吞，给一次机会
+    if not moved:
+        return False
     time.sleep(0.06)
     _send(_btn(down))
     time.sleep(hold_ms / 1000.0)
     _send(_btn(up))
-    return moved
+    return True
 
 
 def post_click(hwnd: int, cx: int, cy: int, hold_ms: int = 80) -> bool:
@@ -713,16 +764,24 @@ def match_score(frame_gray, tpl_gray):
     return float(maxv), maxl
 
 
-def match_tpl(frame_small, t: Tpl):
-    """在（已降采样的）帧里找模板，返回 (score, (x, y))，坐标是降采样坐标系。"""
-    th, tw = t.small.shape[:2]
+def match_tpl(frame_small, t: Tpl, thr: float = 0.0):
+    """在（已降采样的）帧里找模板，返回 (score, (x, y))，坐标是降采样坐标系。
+
+    ROI 优先（把 100ms 压到几毫秒）；ROI 里没过阈值就**退回全图再找一次** ——
+    meta.json 记的是采集那台机器的客户区尺寸，尺寸恰好相同但 UI 缩放/画质不同时，
+    ROI 会整块偏掉，不退全图就永远只有 0.4 分，看着像模板坏了。
+    """
+    thh, tww = t.small.shape[:2]
     if t.roi:
         x0, y0, x1, y1 = t.roi
-        if x1 - x0 >= tw and y1 - y0 >= th:
+        if x1 - x0 >= tww and y1 - y0 >= thh:
             s, loc = match_score(frame_small[y0:y1, x0:x1], t.small)
-            if s >= 0:
+            if s >= thr and s >= 0:
                 return s, (loc[0] + x0, loc[1] + y0)
-            return s, (0, 0)
+            s2, loc2 = match_score(frame_small, t.small)
+            if s2 > s:
+                return s2, loc2
+            return s, (loc[0] + x0, loc[1] + y0) if s >= 0 else (s, (0, 0))
     return match_score(frame_small, t.small)
 
 
@@ -845,7 +904,7 @@ def cmd_probe(cfg: dict, hwnd_hint: int = 0) -> None:
             parts = []
             best = None
             for t in fresh:
-                s, _ = match_tpl(small, t)
+                s, _ = match_tpl(small, t, th)
                 if best is None or s > best[1]:
                     best = (t.name, s)
                 parts.append(f"{'★' if s >= th else ' '}{t.name}={s:.3f}")
@@ -893,7 +952,7 @@ def cmd_run(cfg: dict, hwnd_hint: int = 0) -> None:
 
     log_path = os.path.join(OUT_DIR, f"afk_{datetime.now():%Y%m%d_%H%M%S}.log")
     log = Log(log_path)
-    trim_dir(OUT_DIR, 30, ".log")          # 日志只留最近 30 次
+    trim_dir(OUT_DIR, 30, ".log", ("clicktest.log",))   # 日志只留最近 30 次
     trim_dir(os.path.join(OUT_DIR, "fail"), 20)
 
     print()
@@ -907,6 +966,7 @@ def cmd_run(cfg: dict, hwnd_hint: int = 0) -> None:
 
     held: set[str] = set()
     last_fire: dict[str, float] = {}
+    fails: dict[str, int] = {}          # 每个界面连续点不动的次数
     last_state = None
     last_hit = time.time()
     warned_at = 0.0
@@ -934,43 +994,63 @@ def cmd_run(cfg: dict, hwnd_hint: int = 0) -> None:
 
     click_mode = str(cfg["loop"].get("click_mode", "sendinput")).lower()
 
-    def do_click(cx: int, cy: int, sx: int, sy: int, button: str = "left") -> bool:
-        """按配置选投递方式：sendinput / postmessage / both"""
-        moved = True
+    def do_click(cx: int, cy: int, sx: int, sy: int, button: str = "left") -> str:
+        """按配置投递，返回用了哪条通道；none = 两条都没送进去。"""
+        used = "none"
         if click_mode in ("sendinput", "both"):
-            moved = click_at(sx, sy, button)
-        if click_mode in ("postmessage", "both"):
-            post_click(hwnd, cx, cy)
-        return moved
+            if click_at(sx, sy, button):
+                used = "sendinput"
+        if click_mode in ("postmessage", "both") and post_click(hwnd, cx, cy):
+            used = used + "+post" if used == "sendinput" else "postmessage"
+        if used == "none" and post_click(hwnd, cx, cy):
+            # SendInput 光标被锁（ClipCursor / 反作弊）时，窗口消息是唯一出路
+            used = "postmessage"
+        return used
 
-    def check_effect(gray_before, cx: int = -1, cy: int = -1) -> bool:
-        """点完 0.35 秒再抓一帧，只看目标点周围一块，判断这一下到底有没有落到游戏里。"""
-        time.sleep(0.35)
-        after = grab(hwnd)
-        if after is None or after.size == 0:
-            return True
-        if after.shape[:2] != gray_before.shape[:2]:
-            return True
-        g_after = cv2.cvtColor(after, cv2.COLOR_BGR2GRAY)
-        if cx < 0:
-            d = float(cv2.absdiff(gray_before, g_after).mean())
-        else:
-            d = local_diff(gray_before, g_after, cx, cy)
-        return d >= 3.0
+    def state_gone(t: Tpl, wait: float = 0.45) -> bool:
+        """点完等一下重新匹配：这个界面的模板消失了才算真的推进了。
 
-    def fire(cx: int, cy: int, sx: int, sy: int, button: str = "left") -> str:
-        """点一下并确认生效。SendInput 偶尔被吞（刚切窗口时）→ 自动补一发窗口消息。
-
-        返回一行日志后缀，空串表示这次点击没进游戏。
+        ★ 不能用"画面变了"当判据 —— 点到奖励卡片会把卡片点亮，diff 很大，
+        但界面根本没走。只有模板消失才说明换界面了。
         """
-        moved = do_click(cx, cy, sx, sy, button)
-        ok = check_effect(gray, cx, cy)
-        if not ok and click_mode == "sendinput":
-            post_click(hwnd, cx, cy)          # 兜底：直接投窗口消息
-            ok = check_effect(gray, cx, cy)
-        if not moved:
-            return ""
-        return "" if ok else "   ⚠没反应"
+        time.sleep(wait)
+        f = grab(hwnd)
+        if f is None or f.size == 0:
+            return True
+        gg = cv2.cvtColor(f, cv2.COLOR_BGR2GRAY)
+        ss = cv2.resize(gg, None, fx=MATCH_SCALE, fy=MATCH_SCALE,
+                        interpolation=cv2.INTER_AREA)
+        sc, _ = match_tpl(ss, t, th)
+        if sc < th:
+            return True
+        time.sleep(1.2)                     # 还在？再等 1.2 秒复核，避免过场动画误报
+        f = grab(hwnd)
+        if f is None or f.size == 0:
+            return True
+        gg = cv2.cvtColor(f, cv2.COLOR_BGR2GRAY)
+        ss = cv2.resize(gg, None, fx=MATCH_SCALE, fy=MATCH_SCALE,
+                        interpolation=cv2.INTER_AREA)
+        sc, _ = match_tpl(ss, t, th)
+        return sc < th
+
+    def _count_fail(name: str) -> None:
+        n = fails.get(name, 0) + 1
+        fails[name] = n
+        if n == 3:
+            log(f"⚠ 「{name}」连点 3 次没走 —— 这个位置点不动："
+                f"换一块框模板，或给这条加 offset")
+
+    def fire(t: Tpl, cx: int, cy: int, sx: int, sy: int, button: str = "left"):
+        """点一下并确认界面真的换了。返回 (是否生效, 日志后缀)。"""
+        used = do_click(cx, cy, sx, sy, button)
+        if used == "none":
+            _count_fail(t.name)
+            return False, "   ⚠没送进去（光标被锁 / 权限不够）"
+        if not state_gone(t):
+            _count_fail(t.name)
+            return False, "   ⚠界面没变（点到了不能点的地方？）"
+        fails.pop(t.name, None)
+        return True, ""
 
     try:
         while True:
@@ -1001,7 +1081,7 @@ def cmd_run(cfg: dict, hwnd_hint: int = 0) -> None:
 
             hit = None
             for t in fresh:
-                s, loc = match_tpl(small, t)
+                s, loc = match_tpl(small, t, th)
                 scores[t.name] = s
                 if s >= th:
                     hit = (t, loc, s)
@@ -1023,7 +1103,7 @@ def cmd_run(cfg: dict, hwnd_hint: int = 0) -> None:
                 round_msg = ""
 
                 act = st.get("action", "none")
-                if act == "click":
+                if act in ("click", "click_template"):
                     cd = float(st.get("cooldown", 3.0))
                     if now - last_fire.get(name, 0.0) >= cd:
                         sc = t.scale
@@ -1031,25 +1111,37 @@ def cmd_run(cfg: dict, hwnd_hint: int = 0) -> None:
                         cx = int(round((loc[0] + tw_ / 2) / sc)) + int(st.get("offset", [0, 0])[0])
                         cy = int(round((loc[1] + th_ / 2) / sc)) + int(st.get("offset", [0, 0])[1])
                         sx, sy = client_point(cx, cy)
-                        did = f"点击({sx},{sy})" + fire(cx, cy, sx, sy, st.get("button", "left"))
+                        ok, note = fire(t, cx, cy, sx, sy, st.get("button", "left"))
                         last_fire[name] = now
-                        if st.get("count_round"):
+                        did = f"点击({sx},{sy})" + note
+                        if ok and st.get("count_round"):
                             rounds += 1
                             round_msg = f"   ✔ 第 {rounds} 轮  {(now - round_t0) / 60:.1f} 分钟"
                             round_t0 = now
+                        elif not ok and st.get("count_round"):
+                            round_msg = "   ⚠ 这一轮没走成，不计入轮数"
                 elif act == "click_anywhere":
                     cd = float(st.get("cooldown", 10.0))
                     if now - last_fire.get(name, 0.0) >= cd:
-                        px, py = st.get("point", [0.5, 0.55])
-                        cx = int(cw * float(px))
-                        cy = int(ch * float(py))
+                        pt = st.get("point")
+                        if pt:                      # 配了固定比例点就点那里
+                            cx = int(cw * float(pt[0]))
+                            cy = int(ch * float(pt[1]))
+                        else:                       # 没配就点模板中心（框哪点哪）
+                            sc = t.scale
+                            th_, tw_ = t.small.shape[:2]
+                            cx = int(round((loc[0] + tw_ / 2) / sc))
+                            cy = int(round((loc[1] + th_ / 2) / sc))
                         sx, sy = client_point(cx, cy)
-                        did = f"点屏幕({sx},{sy})" + fire(cx, cy, sx, sy, st.get("button", "left"))
+                        ok, note = fire(t, cx, cy, sx, sy, st.get("button", "left"))
                         last_fire[name] = now
-                        if st.get("count_round"):
+                        did = f"点屏幕({sx},{sy})" + note
+                        if ok and st.get("count_round"):
                             rounds += 1
                             round_msg = f"   ✔ 第 {rounds} 轮  {(now - round_t0) / 60:.1f} 分钟"
                             round_t0 = now
+                        elif not ok and st.get("count_round"):
+                            round_msg = "   ⚠ 这一轮没走成，不计入轮数"
                 elif act == "key_hold":
                     k = str(st.get("key", "w"))
                     want_hold.add(k)
