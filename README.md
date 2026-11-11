@@ -6,10 +6,10 @@
 </p>
 
 <p align="center">
-  <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.10%2B-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python 3.10+"></a>
-  <a href="#-前提"><img src="https://img.shields.io/badge/Windows-10%20%7C%2011%20x64-0078D6?style=for-the-badge&logo=windows&logoColor=white" alt="Windows 10/11 x64"></a>
-  <a href="https://opencv.org/"><img src="https://img.shields.io/badge/OpenCV-4.8%2B-5C3EE8?style=for-the-badge&logo=opencv&logoColor=white" alt="OpenCV 4.8+"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-3DA639?style=for-the-badge&logo=opensourceinitiative&logoColor=white" alt="License MIT"></a>
+  <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.10%2B-3776AB?style=flat-square" alt="Python 3.10+"></a>
+  <a href="#-前提"><img src="https://img.shields.io/badge/Windows-10%20%7C%2011-0078D6?style=flat-square" alt="Windows 10/11"></a>
+  <a href="https://opencv.org/"><img src="https://img.shields.io/badge/OpenCV-4.8%2B-5C3EE8?style=flat-square" alt="OpenCV 4.8+"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-3DA639?style=flat-square" alt="License MIT"></a>
 </p>
 
 ---
@@ -86,7 +86,7 @@ python nfsm_afk.py
 只有**第一步**不同（A 是房间里的开始按钮，B 是大世界里的玩法入口），往下 4 步完全一致。
 
 `samples/` 里的 5 张示例采的是 **A（房间）**。走 B 只要把第 1 张换成大世界入口，第 2–5 张照旧。
-如果打完一局回到大世界、入口不在同一屏（要先进一个菜单），按 [加一个界面](#加一个界面) 补一条状态即可。
+如果打完一局回到大世界、入口不在同一屏（要先进一个菜单），在 `afk_config.json` 的 `states` 里补一条状态即可 —— 多采一张入口模板，加一行配置，顺序放在它要压住的那条之前。
 
 ## 🖼 采模板：只框「永远不变的东西」
 
@@ -139,19 +139,6 @@ python nfsm_afk.py
 日志会写 `点屏幕[第1/3点](x,y)`，一眼看出试到第几个。
 
 三个点都不行，就把 `points` 改成你想点的地方（0~1 比例），或者用 `click` 点模板中心。
-
-### 加一个界面
-
-流程比默认多一步时（比如从大世界开局），不用改代码：
-
-1. 菜单 1 采一张新模板，比如 `6_entry.png`
-2. 在 `afk_config.json` 的 `states` 里插一条，**顺序放在它需要压住的那条之前**：
-
-```json
-{ "name": "大世界-入口", "template": "6_entry.png", "action": "click", "cooldown": 6.0 }
-```
-
-3. 菜单 3 停在那个界面看分数，≥ 0.90 才算能用
 
 ## 🔧 出问题了
 
