@@ -11,7 +11,7 @@ from ctypes import wintypes
 from datetime import datetime
 from unicodedata import east_asian_width
 
-# ★ 必须先声明 DPI 感知，否则高缩放屏下 Win32 坐标和截图坐标对不上
+# 声明 DPI 感知，否则高缩放屏下 Win32 坐标和截图坐标对不上
 try:
     ctypes.windll.shcore.SetProcessDpiAwareness(2)  # PER_MONITOR_DPI_AWARE
 except Exception:
@@ -113,7 +113,7 @@ DEFAULT_CFG = {
     "window": {"title_keyword": "NFS-", "exe_keyword": "SpeedGame-Win64-Shipping.exe"},
     "match": {"threshold": 0.82},
     "loop": {"poll_ms": 100, "stuck_warn_sec": 300, "max_rounds": 0,
-             "hold_grace": 1.5, "auto_focus": False, "dump_after": 120,
+             "hold_grace": 1.5, "dump_after": 120,
              "click_mode": "sendinput"},
     "states": DEFAULT_STATES,
 }
@@ -195,49 +195,6 @@ def imwrite_u(path: str, img) -> bool:
     return True
 
 
-_OLD_NOTES = {
-    "房间里的【开始 / 准备】按钮",
-    "匹配等待界面（取消匹配按钮或转圈）",
-    "比赛中的 HUD（计时器 / 名次 / 小地图任选一块不变的）",
-    "比赛打完自动弹的排名结算界面，框【确认】按钮",
-    "奖励结算界面，框界面上固定不动的一块（标题 / 图标，别框奖励物品）",
-    "奖励结算界面，框「点击屏幕任意位置返回」那行字 —— 框哪里点哪里",
-}
-
-
-def _migrate_cfg(cfg: dict, ver: int) -> bool:
-    """老配置升级。只在 cfg_version < 2 时做一次，做完打标。
-
-    ★ ver 必须来自【磁盘上的原文件】，不能用合并后的 cfg ——
-    DEFAULT_CFG 里已经有 cfg_version=2，合并后永远看不出这份配置是几版。
-
-    v2 修的两个坑（都来自 v1）：
-    1. v1 把奖励结算改成 `click`（点模板中心）。实测那行提示小字点不动 ——
-       点它界面不变，日志写「⚠界面没变」。改成 `click_anywhere` + `points`：
-       依次试点，哪个能推进就用哪个。
-    2. 采集提示文案更新（大世界开局 / 别框倒计时），老配置里的 note 一起刷新。
-    """
-    if ver >= 2:
-        return False
-
-    by_tpl = {s.get("template"): s for s in DEFAULT_STATES}
-    for st in cfg.get("states", []):
-        tpl = st.get("template")
-        d = by_tpl.get(tpl)
-        # 1) 刷新旧文案（用户自己写的 note 不动）
-        if d and st.get("note") in _OLD_NOTES:
-            st["note"] = d["note"]
-        # 2) 奖励结算：改成多点轮换，去掉单个 point
-        if tpl == "5_reward_click.png":
-            st["action"] = "click_anywhere"
-            st.pop("point", None)
-            if not st.get("points"):
-                st["points"] = [list(p) for p in d["points"]]
-
-    cfg["cfg_version"] = 2
-    return True
-
-
 def load_cfg() -> dict:
     if not os.path.isfile(CFG_PATH):
         with open(CFG_PATH, "w", encoding="utf-8") as f:
@@ -245,34 +202,12 @@ def load_cfg() -> dict:
         print(f"已生成默认配置：{CFG_PATH}")
     with open(CFG_PATH, encoding="utf-8") as f:
         raw = json.load(f)
-    # ★ 必须深拷贝再当备份：下面 cfg[k] = v 会共享同一个 list 对象，
-    # 迁移改了 cfg 就等于把 raw 也改了，备份出来的"原文件"是升级后的内容。
-    raw_orig = json.loads(json.dumps(raw))
     cfg = json.loads(json.dumps(DEFAULT_CFG))
     for k, v in raw.items():
         if isinstance(v, dict) and isinstance(cfg.get(k), dict):
             cfg[k].update(v)
         else:
             cfg[k] = v
-
-    try:
-        disk_ver = int(raw_orig.get("cfg_version", 1))
-    except Exception:
-        disk_ver = 1
-    if _migrate_cfg(cfg, disk_ver):
-        try:
-            bak = CFG_PATH + ".bak"
-            if not os.path.isfile(bak):
-                with open(bak, "w", encoding="utf-8") as f:
-                    json.dump(raw_orig, f, ensure_ascii=False, indent=2)
-            with open(CFG_PATH, "w", encoding="utf-8") as f:
-                json.dump(cfg, f, ensure_ascii=False, indent=2)
-            print("⚠ 已升级配置（v2）：")
-            print("  · 奖励结算那一步改成依次试点（底部/中间/顶部），哪个能推进就用哪个")
-            print("  · 采集提示文案更新（大世界开局 / 别框倒计时）")
-            print(f"  原文件备份：{bak}")
-        except Exception:
-            pass
     return cfg
 
 
@@ -370,26 +305,6 @@ def grab(hwnd: int | None = None, box=None):
             box = (vx, vy, vx + vw, vy + vh)
     img = ImageGrab.grab(bbox=box, all_screens=True)
     return cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
-
-
-def activate(hwnd: int) -> bool:
-    try:
-        if win32gui.IsIconic(hwnd):
-            win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
-            time.sleep(0.6)
-        fg = win32gui.GetForegroundWindow()
-        if win32gui.GetAncestor(fg, win32con.GA_ROOT) == win32gui.GetAncestor(
-            hwnd, win32con.GA_ROOT
-        ):
-            return True
-        win32gui.SetForegroundWindow(hwnd)
-        time.sleep(0.2)
-        fg = win32gui.GetForegroundWindow()
-        return win32gui.GetAncestor(fg, win32con.GA_ROOT) == win32gui.GetAncestor(
-            hwnd, win32con.GA_ROOT
-        )
-    except Exception:
-        return False
 
 
 def is_foreground(hwnd: int) -> bool:
@@ -514,11 +429,10 @@ def move_to(x: int, y: int) -> bool:
 
 
 def click_at(x: int, y: int, button: str = "left", hold_ms: int = 90) -> bool:
-    """标准序列：MOVE(带绝对坐标) -> DOWN(裸事件) -> UP(裸事件)。
+    """MOVE(带绝对坐标) -> DOWN(裸事件) -> UP(裸事件)。
 
-    ★ 光标没到位就绝不下 DOWN/UP：DOWN/UP 是裸事件，落点 = 当前光标位置。
-    光标被游戏锁住 / 移动被拦时照发，就会**点在屏幕上一个随机位置**
-    （点到奖励卡、点到退出按钮都有可能），比不点更糟。
+    光标没到位就不发 DOWN/UP —— 裸事件的落点就是当前光标位置，
+    移动失败时照发会点到屏幕别处。
     """
     down = MOUSE_LEFTDOWN if button == "left" else MOUSE_RIGHTDOWN
     up = MOUSE_LEFTUP if button == "left" else MOUSE_RIGHTUP
@@ -605,15 +519,11 @@ def _is_admin() -> bool:
 
 
 def _ensure_admin() -> None:
-    """★ 游戏几乎都是管理员权限启动的。普通权限的进程受 UIPI 限制：
-    SendInput 到高权限窗口会被静默丢弃（表现为"光标不动"），
-    PostMessage 直接抛 (5, '拒绝访问')。所以必须提权。"""
+    """游戏一般是管理员启动的，普通权限下输入会被 UIPI 拦掉，必须提权。"""
     if _is_admin():
         return
     print()
-    print("⚠ 需要管理员权限")
-    print("  游戏是以管理员身份运行的，普通权限下 Windows 的 UIPI 会拦住")
-    print("  所有点击注入（光标不动 / PostMessage 拒绝访问都是这个原因）。")
+    print("⚠ 需要管理员权限（否则点击会被拦下，光标纹丝不动）")
     print("  正在申请提权，弹窗点『是』即可…")
     try:
         if getattr(sys, "frozen", False):
@@ -998,7 +908,6 @@ def cmd_run(cfg: dict, hwnd_hint: int = 0) -> None:
     poll = max(int(cfg["loop"]["poll_ms"]), 60) / 1000.0
     stuck_warn = float(cfg["loop"]["stuck_warn_sec"])
     max_rounds = int(cfg["loop"]["max_rounds"])
-    auto_focus = bool(cfg["loop"].get("auto_focus", False))
     dump_after = float(cfg["loop"].get("dump_after", 120.0))
 
     log_path = os.path.join(OUT_DIR, f"afk_{datetime.now():%Y%m%d_%H%M%S}.log")
@@ -1073,11 +982,9 @@ def cmd_run(cfg: dict, hwnd_hint: int = 0) -> None:
                 f"换一块框模板，或给这条加 offset")
 
     def fire(cx: int, cy: int, sx: int, sy: int, button: str = "left") -> str:
-        """只负责点，不在这里判断有没有效。返回日志后缀。
+        """只负责点，不判断有没有效，返回日志后缀。
 
-        ★ 不在点击现场判定 —— 房间点「开始」之后按钮还留在画面上（匹配遮罩 / 淡出），
-        模板 1.6 秒内照样匹配得上，于是明明成功了却打「⚠界面没变」。
-        改成主循环里延迟观察：3 秒后仍停在同一个界面才算真的没推进。
+        不在点击现场判定：按钮点完还留在画面上淡出，模板照样匹配得上。
         """
         used = do_click(cx, cy, sx, sy, button)
         if used == "none":
@@ -1099,12 +1006,9 @@ def cmd_run(cfg: dict, hwnd_hint: int = 0) -> None:
                 continue
 
             if not is_foreground(hwnd):
-                if auto_focus and activate(hwnd):
-                    pass
-                else:
-                    status("⏸ 游戏不在前台，已暂停（切回游戏自动继续）")
-                    _STOP.wait(0.5)
-                    continue
+                status("⏸ 游戏不在前台，已暂停（切回游戏自动继续）")
+                _STOP.wait(0.5)
+                continue
 
             frame = grab(hwnd)
             if frame is None or frame.size == 0:
@@ -1173,10 +1077,9 @@ def cmd_run(cfg: dict, hwnd_hint: int = 0) -> None:
                     break
 
                 act = st.get("action", "none")
-                # ★ 每次点击前再确认一次游戏在前台：用户可能刚 Alt+Tab 去看控制台，
-                # 这时候继续按绝对坐标点，会点到控制台/桌面上，或者把游戏又拉回前台。
+                # 每次点击前确认游戏在前台，否则会点到控制台或桌面上
                 can_click = is_foreground(hwnd)
-                if act in ("click", "click_template"):
+                if act == "click":
                     cd = float(st.get("cooldown", 3.0))
                     if can_click and now - last_fire.get(name, 0.0) >= cd:
                         sc = t.scale
@@ -1282,17 +1185,6 @@ def cmd_run(cfg: dict, hwnd_hint: int = 0) -> None:
 
 # 命令：clicktest
 
-def _wait_vk(vk: int, timeout: float = 120.0) -> bool:
-    t0 = time.time()
-    while time.time() - t0 < timeout:
-        if user32.GetAsyncKeyState(vk) & 0x8000:
-            while user32.GetAsyncKeyState(vk) & 0x8000:
-                time.sleep(0.02)
-            return True
-        time.sleep(0.03)
-    return False
-
-
 def wait_combo(vk: int, timeout: float = 180.0) -> bool:
     """等 Ctrl+Alt+<vk>，Esc 取消。"""
     t0 = time.time()
@@ -1389,7 +1281,7 @@ def cmd_clicktest(cfg: dict, hwnd_hint: int = 0) -> None:
             log("   B 有效 → 直接跑挂机；只有 C 有效 → 把 afk_config.json 里")
             log("   \"click_mode\": \"sendinput\" 改成 \"postmessage\"")
         elif not _is_admin():
-            log("★ 现在不是管理员权限，上面的失败很可能全是 UIPI 拦的：")
+            log("现在不是管理员权限，上面的失败很可能全是 UIPI 拦的：")
             log("  关掉本窗口，右键『以管理员身份运行』再来一次这个测试。")
         else:
             log("✘ 管理员权限下三种都不行，按顺序排查：")

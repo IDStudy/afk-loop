@@ -12,7 +12,6 @@
     "stuck_warn_sec": 300,
     "max_rounds": 0,
     "hold_grace": 1.5,
-    "auto_focus": false,
     "dump_after": 120,
     "click_mode": "sendinput"
   },

@@ -38,4 +38,5 @@ venv/
 _*.py
 _*.txt
 _*.html
+_归档/
 .workbuddy/

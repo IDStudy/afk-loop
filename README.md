@@ -117,7 +117,6 @@ python nfsm_afk.py
 | `loop.hold_grace` | `key_hold` 松手后多久内不重复按，默认 1.5 秒 |
 | `loop.click_mode` | `sendinput` / `postmessage` / `both` |
 | `loop.max_rounds` | 跑几轮自动停，0 = 不限 |
-| `loop.auto_focus` | 是否主动把游戏拉回前台，**默认 false，别开**（会抢焦点，切不出去） |
 | `states[]` | 状态表：一张 png + 一个动作，**按顺序匹配，第一个过阈值的胜出** |
 | `states[].count_round` | 打勾的这条算完成一轮（挂在奖励结算那条上） |
 
